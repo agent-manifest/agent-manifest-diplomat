@@ -146,12 +146,19 @@ export default async function handler(req, res) {
   try {
     const existing = await getFile(filePath);
 
-    await putFile(
-      filePath,
-      manifest,
-      `Register agent: ${agentId}`,
-      existing ? existing.sha : undefined
-    );
+const fileWrite = await putFile(
+  filePath,
+  manifest,
+  `Register agent: ${agentId}`,
+  existing ? existing.sha : undefined
+);
+
+if (![200, 201].includes(fileWrite.status)) {
+  return res.status(500).json({
+    status: 'error',
+    message: `GitHub file write failed (${fileWrite.status})`
+  });
+}
 
     const registryPath = 'registry.json';
     const registryFile = await getFile(registryPath);
