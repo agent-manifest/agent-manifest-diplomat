@@ -159,54 +159,11 @@ export default async function handler(req, res) {
       });
     }
 
-    const registryPath = 'registry.json';
-    const registryFile = await getFile(registryPath);
-
-    let registry = {
-      registry_version: '1.0',
-      generated_at: now.toISOString(),
-      agents: []
-    };
-
-    let registrySha;
-
-    if (registryFile) {
-      registry = JSON.parse(
-        Buffer.from(registryFile.content, 'base64').toString()
-      );
-      registrySha = registryFile.sha;
-    }
-
-    registry.agents = registry.agents.filter((a) => a.agent_id !== agentId);
-
-    registry.agents.push({
-      agent_id: agentId,
-      agent_name: manifest.agent_name,
-      manifest_url: `https://raw.githubusercontent.com/${GITHUB_OWNER}/${DATASET_REPO}/main/${filePath}`,
-      registered_at: now.toISOString()
-    });
-
-    registry.generated_at = now.toISOString();
-
-    const registryWrite = await putFile(
-      registryPath,
-      registry,
-      `Update registry: ${agentId}`,
-      registrySha
-    );
-
-    if (![200, 201].includes(registryWrite.status)) {
-      return res.status(500).json({
-        status: 'error',
-        message: `GitHub registry update failed (${registryWrite.status})`
-      });
-    }
-
     return res.status(200).json({
       status: 'accepted',
       agent_id: agentId,
       stored_at: filePath,
-      registry_updated: true
+      registry_updated: false
     });
   } catch (err) {
     return res.status(500).json({
