@@ -155,7 +155,18 @@ module.exports = async function handler(req, res) {
     if (![200, 201].includes(fileWrite.status)) {
       return res.status(500).json({
         status: 'error',
-        message: `GitHub file write failed (${fileWrite.status})`
+        message: `GitHub file write failed (${fileWrite.status})`,
+        github_error: fileWrite.data,
+        debug: {
+          github_owner: GITHUB_OWNER,
+          env_owner: process.env.GITHUB_OWNER || '(not set)',
+          dataset_repo: DATASET_REPO,
+          env_repo: process.env.DATASET_REPO || '(not set)',
+          path: filePath,
+          token_present: !!process.env.GITHUB_TOKEN,
+          token_length: process.env.GITHUB_TOKEN ? process.env.GITHUB_TOKEN.length : 0,
+          token_prefix: process.env.GITHUB_TOKEN ? process.env.GITHUB_TOKEN.slice(0, 4) : null
+        }
       });
     }
 
