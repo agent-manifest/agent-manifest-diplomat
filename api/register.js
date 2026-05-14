@@ -1,8 +1,8 @@
 const https = require('https');
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const GITHUB_OWNER = 'hernancapucci';
-const DATASET_REPO = 'agent-manifest-dataset';
+const GITHUB_OWNER = process.env.GITHUB_OWNER || 'hernancapucci';
+const DATASET_REPO = process.env.DATASET_REPO || 'agent-manifest-dataset';
 
 const REQUIRED_FIELDS = [
   'manifest_version',
@@ -98,7 +98,7 @@ async function putFile(path, content, message, sha) {
   );
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
