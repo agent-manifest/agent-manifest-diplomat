@@ -8,6 +8,7 @@ const REQUIRED_FIELDS = [
   'manifest_version',
   'agent_id',
   'agent_name',
+  'agent_version',
   'purpose'
 ];
 
@@ -121,10 +122,6 @@ module.exports = async function handler(req, res) {
       status: 'rejected',
       errors: ['Invalid JSON body']
     });
-  }
-
-  if (!manifest.agent_name && manifest.identity) {
-    manifest.agent_name = manifest.identity;
   }
 
   const errors = validateManifest(manifest);
