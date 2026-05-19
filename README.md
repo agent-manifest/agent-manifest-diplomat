@@ -1,22 +1,58 @@
+![Status](https://img.shields.io/badge/status-operational-1a1917?style=flat-square)
+![Gateway](https://img.shields.io/badge/gateway-lightweight-1a1917?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)
+
 # Agent Manifest Diplomat
 
-Registration endpoint for the Agent Manifest ecosystem.
+Public registration gateway for Agent Manifest declarations.
 
-## Infrastructure Role
+-----
 
-The Diplomat is a serverless registration gateway — not the core specification.
-It receives Agent Manifest declarations, validates their structure, and persists
-them to the public dataset repository.
+## What this is
 
-It is not a public-facing conceptual repository. It is infrastructure.
+The Diplomat is a serverless registration gateway. It receives submitted Agent Manifest declarations, performs lightweight pre-write checks, and writes accepted manifests to the public dataset repository.
+
+It is infrastructure, not a public-facing conceptual repository. Full v1.0 schema validation of submitted manifests is performed by the dataset workflow downstream of this gateway.
+
+-----
+
+## What this is not
+
+- **Not a runtime.** The Diplomat does not execute, observe, or supervise any agent.
+- **Not an enforcement engine.** Acceptance into the dataset is not enforcement of declared boundaries.
+- **Not a scoring system.** The Diplomat does not rank, rate, score, or compare declarations.
+- **Not the full v1.0 validator.** The gateway performs lightweight pre-write checks; complete schema validation happens in the dataset workflow.
+- **Not a compliance authority.** Inclusion of a declaration in the dataset is not a compliance statement about the declaring system.
+
+-----
+
+## Validation boundary
+
+The Diplomat performs five lightweight pre-write checks at the gateway:
+
+- `manifest_version` must equal `"1.0"`
+- `agent_id` is required (and must match `^[a-zA-Z0-9._-]+$`)
+- `agent_name` is required
+- `agent_version` is required
+- `purpose` is required
+
+Full v1.0 schema validation against [`schema.json`](https://agent-manifest-spec.org/spec/v1.0/schema.json) is performed by the dataset repository's submission workflow, not by this gateway. The Diplomat is intentionally narrow — it exists to receive submissions and write them; deep validation lives downstream.
+
+-----
 
 ## Endpoint
 
-POST /api/register
+```
+POST https://agent-manifest-diplomat.vercel.app/api/register
+```
+
+-----
 
 ## Request
 
 Send a valid Agent Manifest JSON as the request body.
+
+-----
 
 ## Response
 
@@ -42,6 +78,8 @@ Error:
 }
 ```
 
+-----
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -52,10 +90,34 @@ Error:
 
 See `.env.example` for local development defaults.
 
-In production (Vercel), these must be set as environment variables in the
-project settings. The function will not write manifests if `GITHUB_TOKEN`
-is absent or lacks sufficient permissions.
+In production, these must be set as environment variables in the deployment
+settings. The function will not write manifests if `GITHUB_TOKEN` is absent
+or lacks sufficient permissions.
 
-## Part of the Agent Manifest Ecosystem
+-----
 
-https://agent-manifest-spec.org
+## Canonical links
+
+- **Specification** — https://agent-manifest-spec.org
+- **Schema (v1.0)** — https://agent-manifest-spec.org/spec/v1.0/schema.json
+- **Dataset** — https://github.com/agent-manifest/agent-manifest-dataset
+
+-----
+
+## License
+
+MIT License. See [`LICENSE`](./LICENSE).
+
+---
+
+**Part of the [Agent Manifest](https://agent-manifest-spec.org) ecosystem**
+
+[Spec](https://github.com/agent-manifest/agent-manifest) ·
+[Registry](https://github.com/agent-manifest/agent-manifest-registry) ·
+[Dataset](https://github.com/agent-manifest/agent-manifest-dataset) ·
+[Ambassador](https://github.com/agent-manifest/agent-manifest-ambassador) ·
+[Diplomat](https://github.com/agent-manifest/agent-manifest-diplomat) ·
+[Boundary Handshake](https://github.com/agent-manifest/boundary-handshake) ·
+[∈ Principle](https://github.com/agent-manifest/e-principle)
+
+MIT
