@@ -12,7 +12,7 @@ Public registration gateway for Agent Manifest declarations.
 
 The Diplomat is a serverless registration gateway. It receives submitted Agent Manifest declarations, performs lightweight pre-write checks, and writes accepted manifests to the public dataset repository.
 
-It is infrastructure, not a public-facing conceptual repository. Full v1.0 schema validation of submitted manifests is performed by the dataset workflow downstream of this gateway.
+It is infrastructure, not a public-facing conceptual repository. The gateway performs lightweight pre-write checks only — it does not perform full v1.0 schema validation (see [Validation boundary](#validation-boundary)).
 
 -----
 
@@ -21,7 +21,7 @@ It is infrastructure, not a public-facing conceptual repository. Full v1.0 schem
 - **Not a runtime.** The Diplomat does not execute, observe, or supervise any agent.
 - **Not an enforcement engine.** Acceptance into the dataset is not enforcement of declared boundaries.
 - **Not a scoring system.** The Diplomat does not rank, rate, score, or compare declarations.
-- **Not the full v1.0 validator.** The gateway performs lightweight pre-write checks; complete schema validation happens in the dataset workflow.
+- **Not the full v1.0 validator.** The gateway performs lightweight pre-write checks only; accepted manifests are persisted without full schema validation at write time.
 - **Not a compliance authority.** Inclusion of a declaration in the dataset is not a compliance statement about the declaring system.
 
 -----
@@ -36,7 +36,7 @@ The Diplomat performs five lightweight pre-write checks at the gateway:
 - `agent_version` is required
 - `purpose` is required
 
-Full v1.0 schema validation against [`schema.json`](https://agent-manifest-spec.org/spec/v1.0/schema.json) is performed by the dataset repository's submission workflow, not by this gateway. The Diplomat is intentionally narrow — it exists to receive submissions and write them; deep validation lives downstream.
+The Diplomat does not validate submissions against the full [`schema.json`](https://agent-manifest-spec.org/spec/v1.0/schema.json). It is intentionally narrow — it receives submissions, applies the checks above, and persists accepted manifests to `manifests/YYYY/MM/<agent_id>.json` in the [dataset repository](https://github.com/agent-manifest/agent-manifest-dataset). Manifests submitted through the dataset's issue-based registration path are fully validated by that workflow; manifests accepted by this gateway rely on the pre-write checks above.
 
 -----
 
@@ -66,9 +66,15 @@ Success:
 }
 ```
 
-Note: `registry_updated` is always `false`. Registry regeneration is handled
-separately by the dataset repository CI (`build-registry.yml`), which triggers
-automatically when a new manifest file is committed.
+Accepted manifests are persisted to `manifests/YYYY/MM/<agent_id>.json` in the
+dataset repository, as reported by `stored_at`.
+
+Note: `registry_updated` is always `false` — the Diplomat writes only the
+manifest file and never updates `registry.json` as part of the request. The
+registry index is synchronized asynchronously in the dataset repository: its
+`Agent Registry` workflow (`build-registry.yml`) regenerates `registry.json`
+automatically whenever a push changes `manifests/**` or `registry.json`, so
+the index reflects a new registration shortly after the manifest is committed.
 
 Error:
 ```json
