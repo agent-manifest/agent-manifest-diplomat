@@ -89,6 +89,10 @@ const defaultGithub = {
     );
 
     if (res.status === 404) return null;
+    if (res.status !== 200) {
+      // Auth/config failures must surface as errors, not as "file exists".
+      throw new Error(`GitHub read failed (${res.status})`);
+    }
     return res.data;
   },
 

@@ -218,3 +218,25 @@ test('validateManifest accepts all five published dataset manifests', () => {
     assert.deepStrictEqual(validateManifest(m), [], `${f} should be valid`);
   }
 });
+
+test('GitHub auth/config failure surfaces as 500, not as duplicate', async () => {
+  const github = {
+    calls: { puts: [] },
+    async getFile() {
+      return { message: 'Requires authentication' }; // what a non-200 used to return
+    },
+    async putFile() {
+      throw new Error('should not be reached');
+    }
+  };
+  // With the hardened getFile contract, a real client throws instead;
+  // simulate that behavior directly:
+  github.getFile = async () => {
+    throw new Error('GitHub read failed (401)');
+  };
+  const handler = createHandler(github);
+  const res = fakeRes();
+  await handler({ method: 'POST', body: clone(validManifest) }, res);
+  assert.strictEqual(res.statusCode, 500);
+  assert.match(res.body.message, /GitHub read failed/);
+});
