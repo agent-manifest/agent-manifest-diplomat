@@ -10,9 +10,9 @@ Public registration gateway for Agent Manifest declarations.
 
 ## What this is
 
-The Diplomat is a serverless registration gateway. It receives submitted Agent Manifest declarations, performs lightweight pre-write checks, and writes accepted manifests to the public dataset repository.
+The Diplomat is a serverless registration gateway. It receives submitted Agent Manifest declarations, validates them against the canonical v1.0 JSON Schema, and writes accepted manifests to the public dataset repository.
 
-It is infrastructure, not a public-facing conceptual repository. The gateway performs lightweight pre-write checks only — it does not perform full v1.0 schema validation (see [Validation boundary](#validation-boundary)).
+It is infrastructure, not a public-facing conceptual repository. The gateway is intentionally narrow — it validates, rejects duplicates, and appends, nothing more (see [Validation boundary](#validation-boundary)).
 
 -----
 
@@ -21,22 +21,23 @@ It is infrastructure, not a public-facing conceptual repository. The gateway per
 - **Not a runtime.** The Diplomat does not execute, observe, or supervise any agent.
 - **Not an enforcement engine.** Acceptance into the dataset is not enforcement of declared boundaries.
 - **Not a scoring system.** The Diplomat does not rank, rate, score, or compare declarations.
-- **Not the full v1.0 validator.** The gateway performs lightweight pre-write checks only; accepted manifests are persisted without full schema validation at write time.
+- **Not an authenticated endpoint.** The gateway is open: CORS is `*`, there is no authentication, and there is no rate limiting.
 - **Not a compliance authority.** Inclusion of a declaration in the dataset is not a compliance statement about the declaring system.
 
 -----
 
 ## Validation boundary
 
-The Diplomat performs five lightweight pre-write checks at the gateway:
+The Diplomat validates every submission against the full canonical [`schema.json`](https://agent-manifest-spec.org/spec/v1.0/schema.json) (AJV, JSON Schema draft 2020-12, using a vendored copy of `spec/v1.0/schema.json`). Submissions that fail schema validation are rejected with the validator's error list.
 
-- `manifest_version` must equal `"1.0"`
-- `agent_id` is required (and must match `^[a-zA-Z0-9._-]+$`)
-- `agent_name` is required
-- `agent_version` is required
-- `purpose` is required
+Accepted manifests are persisted to `manifests/YYYY/MM/<agent_id>.json` in the [dataset repository](https://github.com/agent-manifest/agent-manifest-dataset). Writes are append-only by construction: the gateway never passes a `sha` to the GitHub Contents API, so an existing declaration can never be overwritten. A duplicate `agent_id` anywhere in the dataset (checked against `registry.json`, case-insensitively) is rejected with `409`. Resubmitting a byte-identical manifest returns `200` with status `already_registered`, so registration is idempotent.
 
-The Diplomat does not validate submissions against the full [`schema.json`](https://agent-manifest-spec.org/spec/v1.0/schema.json). It is intentionally narrow — it receives submissions, applies the checks above, and persists accepted manifests to `manifests/YYYY/MM/<agent_id>.json` in the [dataset repository](https://github.com/agent-manifest/agent-manifest-dataset). Manifests submitted through the dataset's issue-based registration path are fully validated by that workflow; manifests accepted by this gateway rely on the pre-write checks above.
+Limitations that remain, stated plainly:
+
+- the endpoint is open — CORS is `*`, there is no authentication, and there is no rate limiting
+- acceptance is a schema-validity and uniqueness check, not a review of the declaration's content
+
+Manifests submitted through the dataset's issue-based registration path (`manifest-submission` issues) are validated against the same schema by that repository's workflow.
 
 -----
 
@@ -76,13 +77,23 @@ registry index is synchronized asynchronously in the dataset repository: its
 automatically whenever a push changes `manifests/**` or `registry.json`, so
 the index reflects a new registration shortly after the manifest is committed.
 
-Error:
+Schema validation failure (`400`):
 ```json
 {
   "status": "rejected",
-  "errors": ["manifest_version must be '1.0'"]
+  "errors": ["/manifest_version must be equal to constant"]
 }
 ```
+
+Duplicate `agent_id` (`409`):
+```json
+{
+  "status": "rejected",
+  "errors": ["agent_id 'your-agent-id' is already registered at manifests/2026/03/your-agent-id.json. The dataset is append-only; resubmission does not replace an existing declaration."]
+}
+```
+
+Resubmitting a byte-identical manifest returns `200` with `"status": "already_registered"`.
 
 -----
 

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://agent-manifest-spec.org/spec/v1.0/schema.json",
+  "manifest_version": "1.0",
+  "agent_id": "the-diplomat",
+  "agent_name": "The Diplomat",
+  "agent_version": "1.0.0",
+  "owner": {
+    "type": "organization",
+    "identifier": "Agent Manifest Project"
+  },
+  "purpose": {
+    "primary_code": "manifest.routing",
+    "description": "Routes and validates agent interactions, recording submitted Agent Manifest declarations into the public dataset."
+  },
+  "capabilities": [
+    "manifest-validation",
+    "routing",
+    "logging"
+  ],
+  "forbidden_actions": [
+    "no-write-outside-dataset-repository",
+    "no-autonomous-decision-making"
+  ],
+  "autonomy": {
+    "level": 1
+  },
+  "risk_profile": {
+    "level": "low"
+  },
+  "data_handling": {
+    "stores_personal_data": false
+  },
+  "stopping_authority": {
+    "stoppable_by": ["project maintainer"],
+    "mechanism": "Serverless function can be disabled and its registration token revoked by the project maintainer."
+  },
+  "audit_surface": {
+    "logging": "basic",
+    "reconstructability": "full"
+  },
+  "contact": {
+    "email": "contact@agent-manifest-spec.org"
+  },
+  "declaration_date": "2026-03-08"
+}

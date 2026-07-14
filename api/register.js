@@ -1,35 +1,41 @@
 const https = require('https');
+const Ajv2020 = require('ajv/dist/2020');
+const addFormats = require('ajv-formats');
+const schema = require('./schema.json');
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'agent-manifest';
 const DATASET_REPO = process.env.DATASET_REPO || 'agent-manifest-dataset';
 
-const REQUIRED_FIELDS = [
-  'manifest_version',
-  'agent_id',
-  'agent_name',
-  'agent_version',
-  'purpose'
-];
+// Single authoritative validator: the canonical Agent Manifest v1.0 schema,
+// vendored byte-for-byte from agent-manifest/spec/v1.0/schema.json.
+const ajv = new Ajv2020({ allErrors: true, strict: false });
+addFormats(ajv);
+const validate = ajv.compile(schema);
 
 function validateManifest(manifest) {
-  const errors = [];
+  if (validate(manifest)) return [];
+  return validate.errors.map((e) => {
+    const where = e.instancePath || '/';
+    return `${where} ${e.message}`;
+  });
+}
 
-  if (manifest.manifest_version !== '1.0') {
-    errors.push("manifest_version must be '1.0'");
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
   }
-
-  for (const field of REQUIRED_FIELDS) {
-    if (!manifest[field]) {
-      errors.push(`${field} is required`);
-    }
+  if (typeof a === 'object') {
+    const ka = Object.keys(a);
+    const kb = Object.keys(b);
+    if (ka.length !== kb.length) return false;
+    return ka.every((k) => deepEqual(a[k], b[k]));
   }
-
-  if (manifest.agent_id && !/^[a-zA-Z0-9._-]+$/.test(manifest.agent_id)) {
-    errors.push('agent_id contains invalid characters');
-  }
-
-  return errors;
+  return false;
 }
 
 function githubRequest(method, path, body) {
@@ -50,17 +56,17 @@ function githubRequest(method, path, body) {
     };
 
     const req = https.request(options, (res) => {
-      let body = '';
+      let responseBody = '';
 
       res.on('data', (chunk) => {
-        body += chunk;
+        responseBody += chunk;
       });
 
       res.on('end', () => {
         try {
           resolve({
             status: res.statusCode,
-            data: body ? JSON.parse(body) : {}
+            data: responseBody ? JSON.parse(responseBody) : {}
           });
         } catch (err) {
           reject(err);
@@ -75,97 +81,169 @@ function githubRequest(method, path, body) {
   });
 }
 
-async function getFile(path) {
-  const res = await githubRequest(
-    'GET',
-    `/repos/${GITHUB_OWNER}/${DATASET_REPO}/contents/${path}`
-  );
-
-  if (res.status === 404) return null;
-  return res.data;
-}
-
-async function putFile(path, content, message, sha) {
-  const body = {
-    message,
-    content: Buffer.from(JSON.stringify(content, null, 2)).toString('base64'),
-    ...(sha && { sha })
-  };
-
-  return githubRequest(
-    'PUT',
-    `/repos/${GITHUB_OWNER}/${DATASET_REPO}/contents/${path}`,
-    body
-  );
-}
-
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      status: 'error',
-      message: 'Method not allowed'
-    });
-  }
-
-  const manifest = req.body;
-
-  if (!manifest || typeof manifest !== 'object') {
-    return res.status(400).json({
-      status: 'rejected',
-      errors: ['Invalid JSON body']
-    });
-  }
-
-  const errors = validateManifest(manifest);
-
-  if (errors.length > 0) {
-    return res.status(400).json({
-      status: 'rejected',
-      errors
-    });
-  }
-
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const agentId = manifest.agent_id;
-  const filePath = `manifests/${year}/${month}/${agentId}.json`;
-
-  try {
-    const existing = await getFile(filePath);
-
-    const fileWrite = await putFile(
-      filePath,
-      manifest,
-      `Register agent: ${agentId}`,
-      existing ? existing.sha : undefined
+const defaultGithub = {
+  async getFile(path) {
+    const res = await githubRequest(
+      'GET',
+      `/repos/${GITHUB_OWNER}/${DATASET_REPO}/contents/${path}`
     );
 
-    if (![200, 201].includes(fileWrite.status)) {
-      return res.status(500).json({
+    if (res.status === 404) return null;
+    if (res.status !== 200) {
+      // Auth/config failures must surface as errors, not as "file exists".
+      throw new Error(`GitHub read failed (${res.status})`);
+    }
+    return res.data;
+  },
+
+  // Append-only by construction: no sha is ever sent, so GitHub refuses to
+  // update an existing file (422) instead of silently overwriting it.
+  async putFile(path, content, message) {
+    const body = {
+      message,
+      content: Buffer.from(JSON.stringify(content, null, 2)).toString('base64')
+    };
+
+    return githubRequest(
+      'PUT',
+      `/repos/${GITHUB_OWNER}/${DATASET_REPO}/contents/${path}`,
+      body
+    );
+  }
+};
+
+function decodeFileJson(file) {
+  try {
+    return JSON.parse(Buffer.from(file.content, 'base64').toString('utf-8'));
+  } catch (err) {
+    return null;
+  }
+}
+
+function createHandler(github) {
+  return async function handler(req, res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+
+    if (req.method !== 'POST') {
+      return res.status(405).json({
         status: 'error',
-        message: `GitHub file write failed (${fileWrite.status})`
+        message: 'Method not allowed'
       });
     }
 
-    return res.status(200).json({
-      status: 'accepted',
-      agent_id: agentId,
-      stored_at: filePath,
-      registry_updated: false
-    });
-  } catch (err) {
-    return res.status(500).json({
-      status: 'error',
-      message: err.message
-    });
-  }
+    const manifest = req.body;
+
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+      return res.status(400).json({
+        status: 'rejected',
+        errors: ['Invalid JSON body']
+      });
+    }
+
+    const errors = validateManifest(manifest);
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        status: 'rejected',
+        errors
+      });
+    }
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const agentId = manifest.agent_id;
+    const filePath = `manifests/${year}/${month}/${agentId}.json`;
+
+    try {
+      // The dataset is append-only: an agent_id may be registered once.
+      const existing = await github.getFile(filePath);
+
+      if (existing) {
+        const stored = decodeFileJson(existing);
+
+        if (stored && deepEqual(stored, manifest)) {
+          return res.status(200).json({
+            status: 'already_registered',
+            agent_id: agentId,
+            stored_at: filePath,
+            registry_updated: false
+          });
+        }
+
+        return res.status(409).json({
+          status: 'rejected',
+          errors: [
+            `agent_id '${agentId}' is already registered at ${filePath}. ` +
+              'The dataset is append-only; resubmission does not replace an existing declaration.'
+          ]
+        });
+      }
+
+      const registryFile = await github.getFile('registry.json');
+
+      if (registryFile) {
+        const registry = decodeFileJson(registryFile);
+        const wanted = `${agentId.toLowerCase()}.json`;
+        const priorPath = ((registry && registry.agents) || []).find(
+          (p) => typeof p === 'string' && p.split('/').pop().toLowerCase() === wanted
+        );
+
+        if (priorPath) {
+          return res.status(409).json({
+            status: 'rejected',
+            errors: [
+              `agent_id '${agentId}' is already registered at ${priorPath}. ` +
+                'The dataset is append-only; resubmission does not replace an existing declaration.'
+            ]
+          });
+        }
+      }
+
+      const fileWrite = await github.putFile(
+        filePath,
+        manifest,
+        `Register agent: ${agentId}`
+      );
+
+      if ([409, 422].includes(fileWrite.status)) {
+        return res.status(409).json({
+          status: 'rejected',
+          errors: [
+            `agent_id '${agentId}' was registered concurrently. ` +
+              'The dataset is append-only; resubmission does not replace an existing declaration.'
+          ]
+        });
+      }
+
+      if (fileWrite.status !== 201) {
+        return res.status(500).json({
+          status: 'error',
+          message: `GitHub file write failed (${fileWrite.status})`
+        });
+      }
+
+      return res.status(200).json({
+        status: 'accepted',
+        agent_id: agentId,
+        stored_at: filePath,
+        registry_updated: false
+      });
+    } catch (err) {
+      return res.status(500).json({
+        status: 'error',
+        message: err.message
+      });
+    }
+  };
 }
+
+module.exports = createHandler(defaultGithub);
+module.exports.createHandler = createHandler;
+module.exports.validateManifest = validateManifest;
