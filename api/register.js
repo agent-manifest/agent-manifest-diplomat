@@ -1,4 +1,5 @@
 const https = require('https');
+const { declaredBodyTooLarge, checkSubmission } = require('../lib/submission-limits');
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_OWNER = process.env.GITHUB_OWNER || 'agent-manifest';
@@ -154,13 +155,31 @@ function createHandler(github) {
       });
     }
 
-    const manifest = req.body;
+    // Check the advertised wire size before accessing Vercel's lazy body parser.
+    if (declaredBodyTooLarge(req)) {
+      return res.status(413).json({
+        status: 'rejected',
+        errors: ['Request body exceeds the 65536-byte limit']
+      });
+    }
+
+    let manifest;
+    try {
+      manifest = req.body;
+    } catch {
+      return res.status(400).json({ status: 'rejected', errors: ['Invalid JSON body'] });
+    }
 
     if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
       return res.status(400).json({
         status: 'rejected',
         errors: ['Invalid JSON body']
       });
+    }
+
+    const limitError = checkSubmission(manifest);
+    if (limitError) {
+      return res.status(413).json({ status: 'rejected', errors: [limitError] });
     }
 
     const errors = await validateManifest(manifest);

@@ -21,7 +21,7 @@ It is infrastructure, not a public-facing conceptual repository. The gateway is 
 - **Not a runtime.** The Diplomat does not execute, observe, or supervise any agent.
 - **Not an enforcement engine.** Acceptance into the dataset is not enforcement of declared boundaries.
 - **Not a scoring system.** The Diplomat does not rank, rate, score, or compare declarations.
-- **Not an authenticated endpoint.** The gateway is open: CORS is `*`, there is no authentication, and there is no rate limiting.
+- **Not an authenticated endpoint.** The gateway is open: CORS is `*` and there is no authentication. Resource limits reduce abuse; they do not establish a submitter's identity.
 - **Not a compliance authority.** Inclusion of a declaration in the dataset is not a compliance statement about the declaring system.
 
 -----
@@ -34,7 +34,7 @@ Accepted manifests are persisted to `manifests/YYYY/MM/<agent_id>.json` in the [
 
 Limitations that remain, stated plainly:
 
-- the endpoint is open — CORS is `*`, there is no authentication, and there is no rate limiting
+- the endpoint remains unauthenticated; an IP rate limit does not prevent distributed submissions or verify ownership of a name
 - acceptance is a schema-validity and uniqueness check, not a review of the declaration's content
 
 Manifests submitted through the dataset's issue-based registration path (`manifest-submission` issues) are validated against the same schema by that repository's workflow.
@@ -52,6 +52,36 @@ POST https://agent-manifest-diplomat.vercel.app/api/register
 ## Request
 
 Send a valid Agent Manifest JSON as the request body.
+
+### Gateway resource limits
+
+These are admission policies of this gateway, not changes to Agent Manifest v1.0:
+
+- **Size:** at most 65,536 bytes (64 KiB) in the UTF-8 JSON representation stored
+  in the dataset, including the two-space indentation. An advertised
+  `Content-Length` over 65,536 is rejected before reading the parsed body. The
+  stored representation is checked independently, so omitting that header does
+  not bypass the document limit. Vercel's own payload limit still bounds request
+  buffering/parsing; this application check does not replace it.
+- **Depth:** at most 32 nested objects/arrays, counting the manifest root as
+  level one. This bounds work on arbitrary extension data before validation.
+- **Frequency:** the production project's Vercel Firewall rule
+  `Registration request limit` allows 10 POST requests per 60-second fixed window
+  per source IP on paths starting with `/api/register`. Rejected submissions also
+  count. OPTIONS preflight and GET requests are outside the rule. Vercel tracks
+  counters per region; this is not a global quota or a per-person limit. People
+  behind a shared IP share a bucket.
+
+Size/depth violations return `413` before any GitHub request. Rate limiting is
+enforced by Vercel before the function runs and returns `429`; its response body
+is controlled by the platform, not the JSON response contract below. Clients
+should pause and retry after the window rather than immediately resubmit.
+
+The firewall rule is project configuration, not installed by a Git clone or a
+deployment. Operators moving this gateway to a different project must recreate
+it. [Vercel rate limiting](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting)
+describes the platform behavior. Unit tests use a fake GitHub adapter and never
+write registrations to the public dataset.
 
 -----
 
@@ -101,7 +131,7 @@ Resubmitting a byte-identical manifest returns `200` with `"status": "already_re
 
 | Variable | Required | Description |
 |---|---|---|
-| `GITHUB_TOKEN` | Yes | Personal Access Token with `contents:write` on `DATASET_REPO` |
+| `GITHUB_TOKEN` | Yes | Fine-grained Personal Access Token restricted to `DATASET_REPO`, with Contents read/write and an expiry |
 | `GITHUB_OWNER` | Yes | GitHub org or user that owns the dataset repository |
 | `DATASET_REPO` | Yes | Name of the dataset repository |
 
@@ -110,6 +140,16 @@ See `.env.example` for local development defaults.
 In production, these must be set as environment variables in the deployment
 settings. The function will not write manifests if `GITHUB_TOKEN` is absent
 or lacks sufficient permissions.
+
+Keep the token as a Sensitive/Secret variable scoped to Production. Preview
+deployments and CI do not need permission to write the public dataset. The
+handler requires Contents read/write, not repository administration, workflow
+management, or access to other repositories. This describes the required scope;
+the code cannot attest to the permissions of an opaque deployed secret.
+
+For rotation, configure a replacement with the same narrow access, deploy it,
+verify the registration path, then revoke the previous credential in GitHub.
+Do not revoke the active credential before its replacement is operational.
 
 -----
 
