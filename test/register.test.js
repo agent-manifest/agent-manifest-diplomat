@@ -35,10 +35,11 @@ function fakeRes() {
 }
 
 function fakeGithub({ files = {}, putStatus = 201 } = {}) {
-  const calls = { puts: [] };
+  const calls = { gets: [], puts: [] };
   return {
     calls,
     async getFile(path) {
+      calls.gets.push(path);
       if (!(path in files)) return null;
       return { content: encode(files[path]), sha: 'fakesha' };
     },
@@ -67,6 +68,93 @@ test('valid new manifest is accepted and written without sha', async () => {
   assert.strictEqual(res.body.status, 'accepted');
   assert.strictEqual(github.calls.puts.length, 1);
   assert.strictEqual(github.calls.puts[0].path, monthPath('the-diplomat'));
+});
+
+test('oversized Content-Length is rejected before the body parser or GitHub', async () => {
+  const github = fakeGithub();
+  const res = fakeRes();
+  await createHandler(github)({
+    method: 'POST', headers: { 'content-length': '65537' },
+    get body() { throw new Error('must not parse'); }
+  }, res);
+  assert.strictEqual(res.statusCode, 413);
+  assert.deepStrictEqual(github.calls, { gets: [], puts: [] });
+});
+
+test('UTF-8 storage limit cannot be bypassed by missing or small Content-Length', async () => {
+  for (const headers of [{}, { 'content-length': '1' }]) {
+    const github = fakeGithub();
+    const res = fakeRes();
+    const body = clone(validManifest);
+    body['x-padding'] = 'é'.repeat(33 * 1024);
+    await createHandler(github)({ method: 'POST', headers, body }, res);
+    assert.strictEqual(res.statusCode, 413);
+    assert.deepStrictEqual(github.calls, { gets: [], puts: [] });
+  }
+});
+
+test('exactly 64 KiB of stored JSON is accepted; one more byte is rejected', async () => {
+  const body = clone(validManifest);
+  body['x-padding'] = '';
+  body['x-padding'] = 'a'.repeat(65536 - Buffer.byteLength(JSON.stringify(body, null, 2)));
+  for (const [suffix, expected] of [['', 200], ['a', 413]]) {
+    const github = fakeGithub();
+    const res = fakeRes();
+    await createHandler(github)({ method: 'POST', body: { ...body, 'x-padding': body['x-padding'] + suffix } }, res);
+    assert.strictEqual(res.statusCode, expected);
+    assert.strictEqual(github.calls.puts.length, expected === 200 ? 1 : 0);
+    if (expected === 413) assert.strictEqual(github.calls.gets.length, 0);
+  }
+});
+
+test('deep extension objects and arrays are rejected without a stack overflow or GitHub request', async () => {
+  for (const wrap of [(v) => ({ nested: v }), (v) => [v]]) {
+    const body = clone(validManifest);
+    let nested = {};
+    for (let i = 0; i < 10000; i++) nested = wrap(nested);
+    body['x-nested'] = nested;
+    const github = fakeGithub();
+    const res = fakeRes();
+    await createHandler(github)({ method: 'POST', body }, res);
+    assert.strictEqual(res.statusCode, 413);
+    assert.deepStrictEqual(github.calls, { gets: [], puts: [] });
+  }
+});
+
+test('invalid JSON from the runtime parser returns 400 without GitHub access', async () => {
+  const github = fakeGithub();
+  const res = fakeRes();
+  await createHandler(github)({
+    method: 'POST', get body() { throw new SyntaxError('Invalid JSON'); }
+  }, res);
+  assert.strictEqual(res.statusCode, 400);
+  assert.deepStrictEqual(github.calls, { gets: [], puts: [] });
+});
+
+test('depth limit includes the root and permits exactly 32 container levels', async () => {
+  for (const [levels, expected] of [[32, 200], [33, 413]]) {
+    const body = clone(validManifest);
+    let nested = {};
+    for (let i = 2; i < levels; i++) nested = { nested };
+    body['x-nested'] = nested;
+    const github = fakeGithub();
+    const res = fakeRes();
+    await createHandler(github)({ method: 'POST', body }, res);
+    assert.strictEqual(res.statusCode, expected);
+    assert.strictEqual(github.calls.puts.length, expected === 200 ? 1 : 0);
+  }
+});
+
+test('CORS preflight does not parse or validate a submission', async () => {
+  const github = fakeGithub();
+  const res = fakeRes();
+  await createHandler(github)({
+    method: 'OPTIONS', headers: { 'content-length': '999999' },
+    get body() { throw new Error('must not parse'); }
+  }, res);
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(res.headers['Access-Control-Allow-Origin'], '*');
+  assert.deepStrictEqual(github.calls, { gets: [], puts: [] });
 });
 
 test('missing required field is rejected with 400', async () => {
