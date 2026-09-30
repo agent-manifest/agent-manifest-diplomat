@@ -58,11 +58,12 @@
 
 <h2>What it does not do</h2>
 <ul>
-  <li>It does not authenticate anyone. A manifest is not signed and proves nothing about who submitted it.</li>
+  <li>It does not authenticate anyone. A manifest is not signed and proves nothing about who submitted it, who owns an <code>agent_id</code>, or whether the submitter was authorised to claim that identifier.</li>
   <li>It does not certify, accredit, or issue any mark.</li>
   <li>It does not authorise an agent to do anything, and grants no permission of any kind.</li>
   <li>It does not enforce, observe, or constrain how a declared agent then behaves.</li>
-  <li>Acceptance means a document was well formed. It is not a statement about the agent that published it.</li>
+  <li>Acceptance means a document passed structural validation and the identifier was not already recorded. It is not a statement about the agent that published it.</li>
+  <li>The dataset is append-only: the first accepted claim occupies an <code>agent_id</code>. The current gateway does not verify that the first claimant owns that name.</li>
 </ul>
 
 <h2>Where to go next</h2>
