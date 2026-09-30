@@ -21,7 +21,7 @@ It is infrastructure, not a public-facing conceptual repository. The gateway is 
 - **Not a runtime.** The Diplomat does not execute, observe, or supervise any agent.
 - **Not an enforcement engine.** Acceptance into the dataset is not enforcement of declared boundaries.
 - **Not a scoring system.** The Diplomat does not rank, rate, score, or compare declarations.
-- **Not an authenticated endpoint.** The gateway is open: CORS is `*` and there is no authentication. Resource limits reduce abuse; they do not establish a submitter's identity.
+- **Not an authenticated endpoint.** The gateway is open: CORS is `*` and there is no authentication. Resource limits reduce abuse; they do not establish a submitter's identity, ownership of an `agent_id`, or provenance of a declaration.
 - **Not a compliance authority.** Inclusion of a declaration in the dataset is not a compliance statement about the declaring system.
 
 -----
@@ -36,6 +36,10 @@ Limitations that remain, stated plainly:
 
 - the endpoint remains unauthenticated; an IP rate limit does not prevent distributed submissions or verify ownership of a name
 - acceptance is a schema-validity and uniqueness check, not a review of the declaration's content
+- the gateway does not verify the declared owner, contact, runtime behavior, or whether the submitter is authorized to claim the supplied `agent_id`
+- because the dataset is append-only and duplicate identifiers are rejected, the first accepted claim occupies that `agent_id`; the current pipeline cannot distinguish an authorized first claim from an unauthorized one
+
+Accordingly, `accepted` and `already_registered` are recording statuses. They are not statements of authenticated identity, provenance, endorsement, certification, ownership, or truthfulness.
 
 Manifests submitted through the dataset's issue-based registration path (`manifest-submission` issues) are validated against the same schema by that repository's workflow.
 
